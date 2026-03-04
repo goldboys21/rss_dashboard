@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
+import {
+  DndContext,
+  closestCenter,
+} from "@dnd-kit/core";
+
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+
+import { CSS } from "@dnd-kit/utilities";
 
 /** 読み込み中に表示するスケルトン */
 function Skeleton() {
@@ -128,6 +141,30 @@ function RSSWidget({ url, index, onRemove }) {
   );
 }
 
+function SortableItem({ item, onRemove }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <RSSWidget
+        url={item.url}
+        onRemove={() => onRemove(item.id)}
+      />
+    </div>
+  );
+}
+
 export default function App() {
   const [rssList, setRssList] = useState(() => {
     try {
@@ -140,6 +177,17 @@ export default function App() {
 
   const [newRssUrl, setNewRssUrl] = useState("");
   const [inputError, setInputError] = useState("");
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    setRssList((items) => {
+      const oldIndex = items.findIndex((i) => i.id === active.id);
+      const newIndex = items.findIndex((i) => i.id === over.id);
+      return arrayMove(items, oldIndex, newIndex);
+    });
+  };
 
   // ダーク/ライト（OS 設定を初期値に）
   const [dark, setDark] = useState(() => {
@@ -161,7 +209,11 @@ export default function App() {
   const normalizedList = useMemo(
     () =>
       rssList
-        .map((u) => (typeof u === "string" ? u.trim() : ""))
+        .map((item) =>
+          typeof item === "string"
+            ? null
+            : { ...item, url: item.url.trim() }
+        )
         .filter(Boolean),
     [rssList]
   );
@@ -179,17 +231,21 @@ export default function App() {
       return setInputError("正しい形式の URL を入力してください。");
     }
 
-    if (normalizedList.includes(url)) {
+    if (rssList.some((item) => item.url === url)) {
       return setInputError("同じ URL が既に登録されています。");
     }
 
-    setRssList((prev) => [...prev, url]);
+    setRssList((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), url },
+    ]);
+
     setNewRssUrl("");
     setInputError("");
   };
 
-  const removeRss = (index) =>
-    setRssList((prev) => prev.filter((_, i) => i !== index));
+  const removeRss = (id) =>
+    setRssList((prev) => prev.filter((item) => item.id !== id));
 
   return (
     <div className="wrap">
@@ -221,19 +277,28 @@ export default function App() {
           まずは上のボックスに RSS の URL を入力し、「追加」を押してください。
         </div>
       ) : (
-        <div className="grid">
-          {normalizedList.map((rssUrl, index) => (
-            <RSSWidget
-              key={rssUrl}
-              url={rssUrl}
-              index={index}
-              onRemove={removeRss}
-            />
-          ))}
-        </div>
+        <DndContext
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={normalizedList.map((item) => item.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="grid">
+              {normalizedList.map((item) => (
+                <SortableItem
+                  key={item.id}
+                  item={item}
+                  onRemove={removeRss}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
 
-      <footer className="footer">Simple RSS viewer – M365 Copilot 提供</footer>
+      <footer className="footer">Simple RSS viewer</footer>
     </div>
   );
 }
